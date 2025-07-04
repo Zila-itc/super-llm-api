@@ -16,4 +16,4 @@ echo "📦 Installing dependencies..."
 uv pip install -r requirements.txt
 
 echo "🚀 Starting server..."
-uvicorn main:app --host ${HOST:-0.0.0.0} --port ${PORT:-8000} --reload
+uv run uvicorn main:app --host ${HOST:-0.0.0.0} --port ${PORT:-8000} --reload

@@ -97,7 +97,7 @@ class App:
         # Setup g4f providers
         self.g4f_providers = [
             g4f.Provider.Bing,
-            g4f.Provider.ChatGpt,
+            g4f.Provider.ChatgptX,
             g4f.Provider.GPTalk,
             g4f.Provider.Liaobots,
             g4f.Provider.Phind,
@@ -107,7 +107,7 @@ class App:
         # Setup g4f providers
         self.g4f_providers = [
             g4f.Provider.Bing,
-            g4f.Provider.ChatGpt,
+            g4f.Provider.ChatgptX,
             g4f.Provider.GPTalk,
             g4f.Provider.Liaobots,
             g4f.Provider.Phind,

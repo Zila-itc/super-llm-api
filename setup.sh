@@ -132,7 +132,7 @@ g4f:
   timeout: 30
   providers:
     - "Bing"
-    - "ChatGpt"
+    - "ChatgptX"
     - "GPTalk"
     - "Liaobots"
     - "Phind"
