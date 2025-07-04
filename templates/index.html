@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Preview</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        #chat-container { max-width: 800px; margin: auto; border: 1px solid #ccc; padding: 10px; height: 600px; overflow-y: scroll; display: flex; flex-direction: column; }
+        .message { margin-bottom: 10px; padding: 8px; border-radius: 5px; }
+        .user-message { background-color: #e0f7fa; align-self: flex-end; }
+        .ai-message { background-color: #f0f0f0; align-self: flex-start; }
+        #input-form { display: flex; margin-top: 10px; }
+        #user-input { flex-grow: 1; padding: 8px; border: 1px solid #ccc; border-radius: 5px; }
+        #send-button { padding: 8px 15px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        #send-button:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+    <h1>Chat Preview</h1>
+    <div id="chat-container"></div>
+    <form id="input-form">
+        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+            <select id="model-select" style="padding: 8px; border: 1px solid #ccc; border-radius: 5px;">
+                <option value="">Select Model</option>
+            </select>
+            <select id="provider-select" style="padding: 8px; border: 1px solid #ccc; border-radius: 5px;">
+                <option value="">Select Provider</option>
+            </select>
+        </div>
+        <input type="text" id="user-input" placeholder="Type your message...">
+        <button type="submit" id="send-button">Send</button>
+    </form>
+
+    <h2>Logs</h2>
+    <div id="log-container" style="height: 200px; overflow-y: scroll; border: 1px solid #eee; padding: 10px; background-color: #f9f9f9; font-family: monospace; font-size: 0.8em;"></div>
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const inputForm = document.getElementById('input-form');
+        const userInput = document.getElementById('user-input');
+        const logContainer = document.getElementById('log-container');
+        const modelSelect = document.getElementById('model-select');
+        const providerSelect = document.getElementById('provider-select');
+
+        // Fetch models and providers on page load
+        async function fetchModelsAndProviders() {
+            try {
+                const response = await fetch('/v1/models');
+                if (!response.ok) {
+                    appendLog(`Failed to fetch models: ${response.status}`, 'error');
+                    return;
+                }
+                const data = await response.json();
+                const models = data.data;
+
+                // Clear existing options
+                modelSelect.innerHTML = '<option value="">Select Model</option>';
+                providerSelect.innerHTML = '<option value="">Select Provider</option>';
+
+                const uniqueProviders = new Set();
+                models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.id;
+                    option.textContent = model.id;
+                    modelSelect.appendChild(option);
+                    uniqueProviders.add(model.provider);
+                });
+
+                uniqueProviders.forEach(provider => {
+                    const option = document.createElement('option');
+                    option.value = provider;
+                    option.textContent = provider;
+                    providerSelect.appendChild(option);
+                });
+
+                appendLog('Models and providers loaded successfully.');
+            } catch (error) {
+                appendLog(`Error fetching models and providers: ${error.message}`, 'error');
+                console.error('Error fetching models and providers:', error);
+            }
+        }
+
+        fetchModelsAndProviders();
+
+        function appendLog(message, type = 'info') {
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] [${type.toUpperCase()}] ${message}`;
+            logEntry.style.color = type === 'error' ? 'red' : (type === 'warn' ? 'orange' : 'black');
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function appendMessage(sender, text) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', sender === 'user' ? 'user-message' : 'ai-message');
+            messageDiv.textContent = text;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight; // Scroll to bottom
+        }
+
+        inputForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const message = userInput.value.trim();
+            if (!message) return;
+
+            appendMessage('user', message);
+            userInput.value = '';
+            appendLog(`Sending message: "${message}"`);
+
+            try {
+                const response = await fetch('/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        model: modelSelect.value || 'gpt-3.5-turbo', // Use selected model or default
+                        messages: [{ role: 'user', content: message }],
+                        stream: true,
+                        provider: providerSelect.value || undefined // Use selected provider or undefined
+                    }),
+                });
+
+                if (!response.ok) {
+                    appendLog(`HTTP error! status: ${response.status}`, 'error');
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                appendLog('Response received, processing stream...');
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let aiMessageDiv = document.createElement('div');
+                aiMessageDiv.classList.add('message', 'ai-message');
+                chatContainer.appendChild(aiMessageDiv);
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    // Split by lines to handle multiple SSE events in one chunk
+                    const lines = chunk.split('\n');
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.substring(6);
+                            if (data === '[DONE]') {
+                                break;
+                            }
+                            try {
+                                const json = JSON.parse(data);
+                                const content = json.choices[0].delta.content || '';
+                                aiMessageDiv.textContent += content;
+                                chatContainer.scrollTop = chatContainer.scrollHeight;
+                            } catch (parseError) {
+                                appendLog(`Error parsing JSON: ${parseError.message}. Data: ${data}`, 'error');
+                                console.error('Error parsing JSON:', parseError, 'Data:', data);
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                appendLog(`Fetch error: ${error.message}`, 'error');
+                console.error('Error:', error);
+                appendMessage('ai', 'Error: Could not get a response.');
+            }
+        });
+    </script>
+</body>
+</html>

@@ -13,9 +13,11 @@ from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass
 from enum import Enum
 
+import logging
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import httpx
@@ -90,6 +92,12 @@ class App:
             version="1.0.0"
         )
         
+        self.templates = Jinja2Templates(directory="templates")
+
+        # Configure logging
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        self.logger = logging.getLogger(__name__)
+
         # Load configuration
         self.providers = self.load_providers()
         self.rate_limits = {}
@@ -189,54 +197,80 @@ class App:
         @self.app.get("/health")
         async def health_check():
             return {"status": "healthy", "providers": len(self.providers)}
-    
+
+        @self.app.get("/preview", response_class=HTMLResponse)
+        async def preview(request: Request):
+            return self.templates.TemplateResponse("index.html", {"request": request})
+
     async def handle_chat_completion(self, request: RequestModel) -> Union[ChatCompletionResponse, StreamingResponse]:
+        self.logger.info(f"Received chat completion request for model: {request.model}")
         """Main handler for chat completions with fallback logic"""
         
         # Check if specific provider is forced
         if request.force_provider:
             provider = next((p for p in self.providers if p.name == request.force_provider), None)
             if provider:
+                self.logger.info(f"Force provider: {provider.name}")
                 try:
                     return await self.call_provider(provider, request)
                 except Exception as e:
+                    self.logger.error(f"Forced provider {request.force_provider} failed: {str(e)}")
                     if not request.use_fallback:
                         raise HTTPException(status_code=500, detail=f"Provider {request.force_provider} failed: {str(e)}")
+            else:
+                self.logger.warning(f"Forced provider {request.force_provider} not found.")
+                if not request.use_fallback:
+                    raise HTTPException(status_code=400, detail=f"Provider {request.force_provider} not found")
         
         # Check if specific API key is forced
         if request.force_api_key:
             provider = next((p for p in self.providers if p.api_key == request.force_api_key), None)
             if provider:
+                self.logger.info(f"Force API key for provider: {provider.name}")
                 try:
                     return await self.call_provider(provider, request)
                 except Exception as e:
+                    self.logger.error(f"Forced API key for provider {provider.name} failed: {str(e)}")
                     if not request.use_fallback:
                         raise HTTPException(status_code=500, detail=f"Forced API key failed: {str(e)}")
+            else:
+                self.logger.warning("Forced API key not found in any configured provider.")
+                if not request.use_fallback:
+                    raise HTTPException(status_code=400, detail="Forced API key not found in any configured provider")
         
         # Try providers in priority order
         for provider in self.providers:
             if not provider.enabled:
+                self.logger.info(f"Skipping disabled provider: {provider.name}")
                 continue
                 
             if not self.check_rate_limit(provider):
+                self.logger.warning(f"Rate limit exceeded for provider: {provider.name}")
                 continue
                 
+            self.logger.info(f"Attempting to use provider: {provider.name}")
             try:
                 response = await self.call_provider(provider, request)
                 self.update_rate_limit(provider)
+                self.logger.info(f"Successfully received response from {provider.name}")
                 return response
             except Exception as e:
-                print(f"Provider {provider.name} failed: {str(e)}")
+                self.logger.error(f"Provider {provider.name} failed: {str(e)}")
                 continue
         
         # Fallback to g4f if enabled
-        if request.use_fallback:
+        if self.config.G4F_ENABLED and request.use_fallback:
+            self.logger.info("Falling back to g4f")
             try:
-                return await self.call_g4f(request)
+                response = await self.call_g4f(request)
+                self.logger.info("Successfully received response from g4f")
+                return response
             except Exception as e:
-                print(f"g4f fallback failed: {str(e)}")
+                self.logger.error(f"g4f fallback failed: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"g4f fallback failed: {str(e)}")
         
-        raise HTTPException(status_code=503, detail="All providers failed")
+        self.logger.error("No suitable provider found or all providers failed")
+        raise HTTPException(status_code=503, detail="No suitable provider found or all providers failed")
     
     async def call_provider(self, provider: ProviderConfig, request: RequestModel) -> ChatCompletionResponse:
         """Call a specific provider"""
@@ -427,7 +461,7 @@ class App:
                 })
             
             # Get response from g4f
-            response = await g4f.ChatCompletion.acreate(
+            response = await g4f.ChatCompletion.create_async(
                 model=request.model.replace("g4f-", ""),
                 messages=messages,
                 provider=provider,
