@@ -29,8 +29,8 @@ check_python_version() {
 # Install pip if not present
 if ! python3 -m pip --version &> /dev/null; then
     echo "📦 Installing pip for Python 3..."
-    echo "Please run 'sudo apt-get update && sudo apt-get install -y python3-pip' manually if pip is not found."
-    exit 1
+    sudo apt-get update
+    sudo apt-get install -y python3-pip
 fi
 
 # Check if uvx is installed, if not install it
