@@ -784,9 +784,6 @@ class App:
                 yield "data: [DONE]\n\n"
 
         return StreamingResponse(generate_stream(), media_type="text/event-stream")
-                self.logger.warning(f"Forced provider {request.force_provider} not found.")
-                if not request.use_fallback:
-                    raise HTTPException(status_code=400, detail=f"Provider {request.force_provider} not found")
         
         # Check if specific API key is forced
         if request.force_api_key:
