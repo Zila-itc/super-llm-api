@@ -4,7 +4,7 @@ httpx==0.25.2
 g4f==0.1.9.7
 python-dotenv==1.0.0
 pydantic==2.5.0
-pydantic-settings
 asyncio-throttle==1.0.2
 tenacity==8.2.3
 aiofiles==23.2.1
+pydantic-settings
